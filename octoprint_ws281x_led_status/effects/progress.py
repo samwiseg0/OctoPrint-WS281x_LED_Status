@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# Print and heat up progress?
 from __future__ import absolute_import, division, unicode_literals
 
 import math
@@ -8,9 +7,17 @@ from octoprint_ws281x_led_status.util import blend_two_colors, q_poll_sleep
 
 
 def progress(
-    strip, queue, value, progress_color, base_color, max_brightness=255, reverse=False
+    strip,
+    queue,
+    value,
+    progress_color,
+    base_color,
+    max_brightness=255,
+    reverse=False,
+    fade=False,
 ):
-    strip.setBrightness(max_brightness)
+    if not fade:
+        strip.setBrightness(max_brightness)
     num_pixels = strip.numPixels()
     upper_bar = (value / 100) * num_pixels
     upper_remainder, upper_whole = math.modf(upper_bar)

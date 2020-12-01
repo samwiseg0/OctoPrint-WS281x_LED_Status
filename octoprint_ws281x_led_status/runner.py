@@ -3,12 +3,18 @@ from __future__ import unicode_literals
 
 import logging
 import re
+import threading
 import time
+
+try:
+    from queue import Queue
+except ImportError:
+    from Queue import Queue  # Python 2 uses Queue, not queue...
 
 import rpi_ws281x
 from rpi_ws281x import PixelStrip
 
-from octoprint_ws281x_led_status.effects import progress, standard
+from octoprint_ws281x_led_status.effects import progress, standard, transitions
 from octoprint_ws281x_led_status.util import hex_to_rgb
 
 KILL_MSG = "KILL"
@@ -86,6 +92,12 @@ class EffectRunner:
         self.settings = all_settings
         self.reverse = all_settings["strip"]["reverse"]
         self.max_brightness = all_settings["strip"]["led_brightness"]
+        self.fade_in_enabled = all_settings["fade"]["in"]
+        self.fade_out_enabled = all_settings["fade"]["out"]
+        self.fade_time = int(all_settings["fade"]["time"])
+
+        self.fade_thread = None
+        self.fade_queue = Queue()
         self.lights_on = True
 
         self.previous_state = (
@@ -198,10 +210,16 @@ class EffectRunner:
         elif msg == "on":
             self.lights_on = True
             self._logger.info("On message recieved, turning on LEDs")
+            if self.fade_in_enabled:
+                self._logger.debug("Starting fade in for {}ms".format(self.fade_time))
+                self.start_fade("in")
             return self.previous_state
         elif msg == "off":
             self.lights_on = False
             self._logger.info("Off message recieved, turning off LEDs")
+            if self.fade_out_enabled:
+                self._logger.debug("Starting fade out for {}ms".format(self.fade_time))
+                self.start_fade("out")
             return self.previous_state
         elif "progress" in msg:
             msg_split = msg.split()
@@ -221,9 +239,8 @@ class EffectRunner:
             self.previous_state = msg
 
     def parse_m150(self, msg):
-        red = (
-            green
-        ) = blue = 0  # Start at 0, means sending 'M150' with no params turns LEDs off
+        # Start at 0, means sending 'M150' with no params turns LEDs off
+        red = green = blue = 0
         red_included = green_included = blue_included = False
         brightness = self.max_brightness  # No 'P' param? Use set brightness
         matches = re.finditer(M150_REGEX, msg)
@@ -259,6 +276,10 @@ class EffectRunner:
         self.previous_state = "startup"
 
     def progress_effect(self, mode, value):
+        if self.fade_thread and self.fade_thread.is_alive():
+            fade = True
+        else:
+            fade = False
         if self.check_times() and self.lights_on:
             effect_settings = self.settings[mode]
             EFFECTS[mode](
@@ -269,11 +290,16 @@ class EffectRunner:
                 hex_to_rgb(effect_settings["base"]),
                 self.max_brightness,
                 self.reverse,
+                fade=fade,
             )
         else:
             self.blank_leds()
 
     def standard_effect(self, mode):
+        if self.fade_thread and self.fade_thread.is_alive():
+            fade = True
+        else:
+            fade = False
         if self.check_times() and self.lights_on:
             effect_settings = self.settings[mode]
             EFFECTS[effect_settings["effect"]](
@@ -282,6 +308,7 @@ class EffectRunner:
                 hex_to_rgb(effect_settings["color"]),
                 effect_settings["delay"],
                 self.max_brightness,
+                fade=fade,
             )
         else:
             self.blank_leds()
@@ -297,6 +324,45 @@ class EffectRunner:
         )
         if self.queue.empty():
             time.sleep(0.1)
+
+    def start_fade(self, style):
+        if style == "in":
+            enabled = self.fade_in_enabled
+            target_transition = transitions.fade_in
+            start_brightness = 0
+            target_brightness = self.max_brightness
+
+        else:
+            enabled = self.fade_out_enabled
+            target_transition = transitions.fade_out
+            start_brightness = self.max_brightness
+            target_brightness = 0
+
+        if not enabled:  # sanity check - should have been dealt with already
+            return
+
+        # Scale brightness steps across time - calculates time for each step
+        delay = int(self.fade_time / self.max_brightness)
+        # Stop any current fades, but record what brightness the strip is at
+        if self.fade_thread and self.fade_thread.is_alive():
+            self.fade_queue.put(KILL_MSG)
+            self.fade_thread.join()
+            # We were likely fading already - so start from there.
+            start_brightness = self.strip.getBrightness()
+
+        self.fade_thread = threading.Thread(
+            target=target_transition,
+            name="WS281x Fade transition",
+            args=(
+                self.strip,
+                self.fade_queue,
+                start_brightness,
+                target_brightness,
+                delay,
+            ),
+        )
+        self.fade_thread.daemon = True
+        self.fade_thread.start()
 
     def check_times(self):
         """Check if current time is within 'active times' configuration, log if change detected"""

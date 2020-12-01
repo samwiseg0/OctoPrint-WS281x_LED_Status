@@ -211,6 +211,7 @@ class WS281xLedStatusPlugin(
             "active_hours_stop": "21:00",
             "at_command_reaction": True,
             "intercept_m150": True,
+            "fade": {"in": True, "out": True, "time": 2000},
         }
 
     # Template plugin
@@ -438,6 +439,7 @@ class WS281xLedStatusPlugin(
             if self._settings.get(["active_hours_enabled"])
             else None
         )
+        self.SETTINGS["fade"] = self._settings.get(["fade"])
 
         self.SETTINGS["strip"] = {}
         for setting in STRIP_SETTINGS:
