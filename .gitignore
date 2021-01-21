@@ -13,3 +13,4 @@ dist
 TODO.txt
 extras
 .sync
+docs/_build
