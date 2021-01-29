@@ -1,1 +1,2 @@
 octoprint
+sphinx-rtd-theme
