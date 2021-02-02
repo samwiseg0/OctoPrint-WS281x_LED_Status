@@ -22,6 +22,18 @@
                     <input type="checkbox" class="input-medium" data-bind="checked: settings.plugins.ws281x_led_status.led_white_override">
                 </div>
             </div>
+						{% if led_white_override %}
+						<div class="control-group inline">
+                <label class="control-label">{{ _('White brightness') }}</label>
+                <div class="controls">
+                    <div class="input-append">
+                        <input type="number" class="input-medium" data-bind="value: settingsViewModel.settings.plugins.ws281x_led_status.strip.white_brightness">
+                        <span class="add-on">%</span>
+                    </div>
+                    <input type="range" min="1" max="100" class="input-medium" data-bind="value: settingsViewModel.settings.plugins.ws281x_led_status.strip.white_brightness">
+                </div>
+            </div>
+            {% endif %}
             <div class="control-group inline">
                 <label class="control-label">{{ _('Max brightness') }}</label>
                 <div class="controls">
